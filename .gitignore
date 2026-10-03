@@ -2,9 +2,14 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 benchmark_result.png
+benchmark_*.png
+*.log
 dist/
 build/
 *.spec
 .venv/
 venv/
 .vscode/
+.idea/
+Thumbs.db
+.DS_Store
