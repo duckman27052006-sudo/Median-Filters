@@ -68,6 +68,10 @@ def add_gaussian_noise(
     if sigma < 0:
         raise ValueError("sigma must be >= 0")
     rng = np.random.default_rng(seed)
-    noise = rng.normal(mean, sigma, image.shape)
+    # float32 ngay tu RNG (nhe 1/2 RAM va nhanh hon vs float64 mac dinh)
+    noise = rng.standard_normal(image.shape, dtype=np.float32)
+    noise *= np.float32(sigma)
+    if mean != 0.0:
+        noise += np.float32(mean)
     noisy = image.astype(np.float32) + noise
     return np.clip(noisy, 0, 255).astype(np.uint8)

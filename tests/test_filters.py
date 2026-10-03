@@ -1,5 +1,7 @@
 """Unit test cho Core Engine: filters, noise, metrics."""
 
+import math
+
 import numpy as np
 import pytest
 
@@ -170,6 +172,40 @@ def test_mean_gaussian_padding_border_differs_interior_equal():
         np.testing.assert_array_equal(z[2:-2, 2:-2], r[2:-2, 2:-2])
 
 
+def test_reflect_matches_numpy_convention():
+    """reflect phai la REFLECT_101 (khop np.pad), khong phai BORDER_REFLECT."""
+    import cv2
+
+    from core.filters import _BORDER_MAP
+
+    assert _BORDER_MAP["reflect"] == cv2.BORDER_REFLECT_101
+    rng = np.random.default_rng(20)
+    img = rng.integers(0, 256, size=(12, 12), dtype=np.uint8)
+    for fn in (mean_filter, gaussian_filter):
+        got = fn(img, 3, padding="reflect")
+        padded = np.pad(img, 1, mode="reflect")  # REFLECT_101
+        if fn is mean_filter:
+            ref = cv2.blur(padded, (3, 3))[1:-1, 1:-1]
+        else:
+            ref = cv2.GaussianBlur(padded, (3, 3), 0)[1:-1, 1:-1]
+        np.testing.assert_array_equal(got, ref)
+
+
+def test_naive_quickselect_distinct_paths_same_result():
+    """Hai mode di qua implementation rieng (sort vs partition)."""
+    from core.filters import _median_fast
+
+    rng = np.random.default_rng(21)
+    img = rng.integers(0, 256, size=(16, 16, 3), dtype=np.uint8)
+    a = _median_fast(img, 5, "reflect", method="sort")
+    b = _median_fast(img, 5, "reflect", method="partition")
+    np.testing.assert_array_equal(a, b)
+    np.testing.assert_array_equal(median_filter_naive(img, 5), a)
+    np.testing.assert_array_equal(median_filter_quickselect(img, 5), b)
+    with pytest.raises(ValueError):
+        _median_fast(img, 3, "reflect", method="bogus")
+
+
 # ---- Fix 2: SSIM cho anh nho ----
 
 @pytest.mark.parametrize("h,w", [(3, 3), (5, 5), (6, 6), (7, 7), (8, 10)])
@@ -208,3 +244,85 @@ def test_benchmark_filters_result_shape():
     for v in res.values():
         assert len(v) == 2
         assert all(float(x) >= 0 for x in v)
+
+
+def test_estimate_filter_ms_flags_slow_combo():
+    from core.filters import estimate_filter_ms
+
+    fast = estimate_filter_ms(4000, 3000, 3, 5, "optimized")
+    slow = estimate_filter_ms(4000, 3000, 3, 5, "naive")
+    assert fast < 3000
+    assert slow > 3000  # 12MP + k5 naive: thuc te ~13s
+    assert estimate_filter_ms(256, 256, 3, 3, "naive") < 3000
+
+
+def test_benchmark_lines_duplicate_kernels():
+    """Kernel lap phai lay dung gia tri theo chi so, khong phai index()."""
+    from benchmark import format_benchmark_lines
+
+    lines = format_benchmark_lines([3, 5, 3], ["optimized"],
+                                   {"optimized": [10.0, 20.0, 30.0]})
+    assert len(lines) == 3
+    assert "10.00" in lines[0] and "kernel=3x3" in lines[0]
+    assert "20.00" in lines[1] and "kernel=5x5" in lines[1]
+    assert "30.00" in lines[2] and "kernel=3x3" in lines[2]  # bug cu ra 10.00
+
+
+def test_benchmark_rejects_bad_config():
+    from core.filters import benchmark_filters
+
+    img = np.zeros((8, 8), dtype=np.uint8)
+    with pytest.raises(ValueError, match="Unknown benchmark mode"):
+        benchmark_filters(img, [3], ["misspelled"])
+    with pytest.raises(ValueError, match="rong"):
+        benchmark_filters(img, [3], [])
+    with pytest.raises(ValueError, match="rong"):
+        benchmark_filters(img, [], ["optimized"])
+    with pytest.raises(ValueError, match="so le"):
+        benchmark_filters(img, [4], ["optimized"])
+    with pytest.raises(ValueError, match="repeat"):
+        benchmark_filters(img, [3], ["optimized"], repeat=0)
+    with pytest.raises(ValueError, match="padding"):
+        benchmark_filters(img, [3], ["optimized"], padding="bogus")
+
+
+def test_benchmark_keeps_runtime_error_and_others(monkeypatch):
+    """Loi runtime 1 o do van bao ro + khong mat ket qua o khac."""
+    import core.filters as F
+
+    real = F.median_filter
+
+    def flaky(image, ksize=3, mode="optimized", padding="reflect"):
+        if mode == "mean":
+            raise RuntimeError("boom-test")
+        return real(image, ksize, mode=mode, padding=padding)
+
+    monkeypatch.setattr(F, "median_filter", flaky)
+    img = np.zeros((8, 8), dtype=np.uint8)
+    with pytest.warns(UserWarning, match="boom-test"):
+        res = F.benchmark_filters(img, [3], ["optimized", "mean"])
+    assert res["optimized"] and all(float(x) >= 0 for x in res["optimized"])
+    assert len(res["mean"]) == 1 and math.isnan(res["mean"][0])
+
+
+def test_empty_images_rejected_at_validation():
+    from core.filters import mean_filter as _mf
+
+    for shape in [(0, 8), (8, 0), (0, 0), (0, 8, 3), (8, 0, 3)]:
+        img = np.zeros(shape, dtype=np.uint8)
+        with pytest.raises(ValueError, match="duong"):
+            median_filter(img, 3, mode="optimized")
+        with pytest.raises(ValueError, match="duong"):
+            _mf(img, 3)
+    ok = np.zeros((8, 8), dtype=np.uint8)
+    assert median_filter(ok, 3, mode="optimized").shape == (8, 8)
+
+
+def test_psnr_rejects_bad_max_val():
+    a = np.zeros((8, 8), dtype=np.uint8)
+    b = np.full((8, 8), 10, dtype=np.uint8)
+    for bad in (0, -1, 0.0, float("nan"), float("inf"), float("-inf"), True):
+        with pytest.raises(ValueError, match="max_val"):
+            calculate_psnr(a, b, max_val=bad)
+    assert calculate_psnr(a, b, max_val=255.0) > 0
+    assert calculate_psnr(a, a) == float("inf")  # hanh vi cu giu nguyen

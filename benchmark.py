@@ -18,6 +18,21 @@ from core.filters import benchmark_filters
 from utils.image_loader import load_image
 
 
+def format_benchmark_lines(kernels: list[int], modes: list[str],
+                           results: dict[str, list[float]]) -> list[str]:
+    """Dong ket qua theo dung thu tu + chi so (kernel lap van dung gia tri).
+
+    Tach rieng de unit-test duoc (bug cu dung kernels.index(k) nen kernel
+    lap luon lay gia tri phan tu dau tien).
+    """
+    lines: list[str] = []
+    for i, k in enumerate(kernels):
+        for m in modes:
+            ms = results[m][i]
+            lines.append(f"  kernel={k}x{k} mode={m:12s} -> {ms:8.2f} ms")
+    return lines
+
+
 def main():
     ap = argparse.ArgumentParser(description="Benchmark Median Filter")
     ap.add_argument("--image", default="assets/sample.png")
@@ -33,10 +48,8 @@ def main():
 
     results = benchmark_filters(img, args.kernels, args.modes,
                                 repeat=args.repeat)
-    for k, _ in zip(args.kernels, args.kernels):
-        for m in args.modes:
-            ms = results[m][args.kernels.index(k)]
-            print(f"  kernel={k}x{k} mode={m:12s} -> {ms:8.2f} ms")
+    for line in format_benchmark_lines(args.kernels, args.modes, results):
+        print(line)
 
     plt.figure(figsize=(7, 4.5))
     for m in args.modes:

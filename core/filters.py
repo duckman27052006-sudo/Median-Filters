@@ -43,6 +43,10 @@ def _validate(image: np.ndarray, ksize: int) -> int:
         raise ValueError("image must be uint8 (0-255)")
     if image.ndim not in (2, 3):
         raise ValueError("image must be grayscale (H,W) or RGB (H,W,3)")
+    if image.shape[0] == 0 or image.shape[1] == 0:
+        raise ValueError(
+            "image phai co chieu cao va chieu rong duong "
+            f"(nhan duoc {image.shape}).")
     if not isinstance(ksize, int) or ksize < 3 or ksize % 2 == 0:
         raise ValueError("ksize must be an odd integer >= 3 (3,5,7,9,...)")
     return ksize
@@ -58,70 +62,69 @@ def _pad(image: np.ndarray, ksize: int, padding: str) -> np.ndarray:
     return np.pad(image, ((p, p), (p, p), (0, 0)), mode=mode)
 
 
+def _channel_median_fast(padded_ch: np.ndarray, ksize: int,
+                         method: str) -> np.ndarray:
+    """Median 1 kenh dung sliding_window_view, chia strip de nhe RAM.
+
+    Nhanh hon vong lap Python ~100x, ket qua BYTE-IDENTICAL giua 2 method
+    (cua so le). Strip ~16MB nen anh 12MP van chay.
+    method="sort": full-sort kieu naive (phuc vu hoc tap, cham hon).
+    method="partition": quickselect, chi dua median ve dung vi tri.
+    """
+    from numpy.lib.stride_tricks import sliding_window_view
+
+    hp, wp = padded_ch.shape
+    h, w = hp - ksize + 1, wp - ksize + 1
+    out = np.empty((h, w), dtype=np.uint8)
+    mid = (ksize * ksize) // 2
+    bytes_per_row = w * ksize * ksize
+    rows = max(1, min(h, (16 * 1024 * 1024) // max(1, bytes_per_row)))
+    for r0 in range(0, h, rows):
+        r1 = min(h, r0 + rows)
+        strip = padded_ch[r0:r1 + ksize - 1, :]
+        win = sliding_window_view(strip, (ksize, ksize))  # (rows,W,k,k)
+        flat = win.reshape(r1 - r0, w, -1)
+        if method == "sort":
+            out[r0:r1] = np.sort(flat, axis=2)[:, :, mid].astype(np.uint8)
+        elif method == "partition":
+            out[r0:r1] = np.partition(flat, mid, axis=2)[:, :, mid].astype(
+                np.uint8)
+        else:
+            raise ValueError(f"Unknown median method '{method}'")
+    return out
+
+
+def _median_fast(image: np.ndarray, ksize: int, padding: str,
+                 method: str) -> np.ndarray:
+    _validate(image, ksize)
+    padded = _pad(image, ksize, padding)
+    if image.ndim == 2:
+        return _channel_median_fast(padded, ksize, method)
+    return np.stack([_channel_median_fast(padded[:, :, c], ksize, method)
+                     for c in range(image.shape[2])], axis=-1)
+
+
 def median_filter_naive(
     image: np.ndarray, ksize: int = 3, padding: str = "reflect"
 ) -> np.ndarray:
-    """Cai dat thu cong bang NumPy (phuc vu hoc tap).
+    """Loc trung vi kieu 'thu cong' (phuc vu hoc tap).
 
-    Duyet tung pixel, trich cua so ksize x ksize, lay np.median (full sort).
-    Do phuc tap O(H*W*K^2 log K^2) nen cham voi anh lon / kernel lon.
+    Full-sort vector hoa: van dung y tuong naive (sap xep toan bo cua so roi
+    lay giua) nhung chay tren NumPy stride tricks + chia strip nen anh lon
+    khong treo giao dien. Ket qua BYTE-IDENTICAL voi quickselect (cua so le).
     """
-    _validate(image, ksize)
-    padded = _pad(image, ksize, padding)
-    p = ksize // 2
-
-    if image.ndim == 2:
-        h, w = image.shape
-        out = np.empty_like(image)
-        for i in range(h):
-            for j in range(w):
-                window = padded[i : i + ksize, j : j + ksize]
-                out[i, j] = np.median(window)
-        return out
-
-    h, w, c = image.shape
-    out = np.empty_like(image)
-    for i in range(h):
-        for j in range(w):
-            for ch in range(c):
-                window = padded[i : i + ksize, j : j + ksize, ch]
-                out[i, j, ch] = np.median(window)
-    return out
+    return _median_fast(image, ksize, padding, method="sort")
 
 
 def median_filter_quickselect(
     image: np.ndarray, ksize: int = 3, padding: str = "reflect"
 ) -> np.ndarray:
-    """Dung np.partition (Quickselect) de lay median ma khong sort full.
+    """Dung partition (Quickselect) de lay median ma khong sort full.
 
-    Nhanh hon naive ~2-3x, ket qua tuong duong.
+    Nhanh hon naive, ket qua BYTE-IDENTICAL voi naive (cua so le);
+    ban vector hoa, anh lon van chay.
     """
-    _validate(image, ksize)
-    padded = _pad(image, ksize, padding)
-    p = ksize // 2
-    mid = (ksize * ksize) // 2
-
-    def _median_of_window(win: np.ndarray) -> int:
-        flat = win.reshape(-1)
-        return int(np.partition(flat, mid)[mid])
-
-    if image.ndim == 2:
-        h, w = image.shape
-        out = np.empty_like(image)
-        for i in range(h):
-            for j in range(w):
-                out[i, j] = _median_of_window(padded[i : i + ksize, j : j + ksize])
-        return out
-
-    h, w, c = image.shape
-    out = np.empty_like(image)
-    for i in range(h):
-        for j in range(w):
-            for ch in range(c):
-                out[i, j, ch] = _median_of_window(
-                    padded[i : i + ksize, j : j + ksize, ch]
-                )
-    return out
+    return _median_fast(image, ksize, padding, method="partition")
 
 
 if _HAS_NUMBA:
@@ -210,7 +213,9 @@ def median_filter_opencv(image: np.ndarray, ksize: int = 3,
 
 
 _BORDER_MAP = {
-    "reflect": cv2.BORDER_REFLECT,
+    # "reflect" phai la REFLECT_101 de khop np.pad(mode="reflect") ma median
+    # dung (khong lap pixel bien) — truoc day map nham sang BORDER_REFLECT.
+    "reflect": cv2.BORDER_REFLECT_101,
     "replicate": cv2.BORDER_REPLICATE,
     "zero": cv2.BORDER_CONSTANT,
 }
@@ -291,9 +296,35 @@ def benchmark_filters(
 ) -> dict[str, list[float]]:
     """Do thoi gian loc (ms) theo kernel/mode. Tra ve {mode: [ms per ksize]}.
 
-    Lay best-of-repeat cho moi o. Mode loi cho NaN thay vi raise, de GUI/CLI
-    van ve duoc bieu do va khong ket chuong trinh.
+    Lay best-of-repeat cho moi o. Cau hinh sai (mode la, kernel chan,
+    repeat < 1, padding la) duoc bao ValueError NGAY, khong giau thanh NaN.
+    Loi runtime cua tung o do van tiep tuc benchmark (khong mat ket qua cac
+    o khac) nhung duoc giu lai qua warnings.warn thay vi NaN cam.
     """
+    import warnings
+
+    valid_modes = {"naive", "quickselect", "numba", "optimized", "opencv",
+                   "mean", "gaussian", "gauss"}
+    if not modes:
+        raise ValueError("modes khong duoc rong")
+    for m in modes:
+        if not isinstance(m, str) or m.lower() not in valid_modes:
+            raise ValueError(
+                f"Unknown benchmark mode '{m}'. Chon trong {sorted(valid_modes)}.")
+    ksizes = list(ksizes)
+    if not ksizes:
+        raise ValueError("ksizes khong duoc rong")
+    for k in ksizes:
+        if (not isinstance(k, (int, np.integer)) or isinstance(k, bool)
+                or int(k) < 3 or int(k) % 2 == 0):
+            raise ValueError(
+                f"ksize phai la so le >= 3 (nhan duoc {k!r}).")
+    repeat_ok = (isinstance(repeat, (int, np.integer))
+                 and not isinstance(repeat, bool) and int(repeat) >= 1)
+    if not repeat_ok:
+        raise ValueError(f"repeat phai la so nguyen >= 1 (nhan duoc {repeat!r}).")
+    if padding not in _PADDING_MAP:
+        raise ValueError(f"padding phai la mot trong {list(_PADDING_MAP)}.")
     results: dict[str, list[float]] = {m: [] for m in modes}
     for k in ksizes:
         for m in modes:
@@ -303,12 +334,30 @@ def benchmark_filters(
                 t0 = time.perf_counter()
                 try:
                     median_filter(image, k, mode=m, padding=padding)
-                except Exception:
+                except Exception as exc:
                     best = float("nan")
                     ok = True
+                    warnings.warn(
+                        f"benchmark {m} k={k} that bai: "
+                        f"{type(exc).__name__}: {exc}")
                     break
                 dt = (time.perf_counter() - t0) * 1000.0
                 best = min(best, dt)
                 ok = True
             results[m].append(best if ok else float("nan"))
     return results
+
+
+_SLOW_MODES = {"naive", "quickselect", "numba"}
+
+
+def estimate_filter_ms(h: int, w: int, channels: int, ksize: int,
+                       mode: str) -> float:
+    """Uoc tinh thoi gian loc (ms) de GUI canh bao truoc khi chay.
+
+    Hieu chuan tu do thuc te: mode NumPy ton ~5ns moi pixel-cua-so
+    (12MP RGB k5 naive ~13s); mode OpenCV (optimized/mean/gaussian) vai ms.
+    """
+    if mode.lower() not in _SLOW_MODES:
+        return 5.0
+    return h * w * channels * ksize * ksize * 5e-6

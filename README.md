@@ -1,4 +1,4 @@
-# Median Filters — Ứng dụng lọc trung vị khử nhiễu ảnh
+# Median Filters v1.5.2 — Ứng dụng lọc trung vị khử nhiễu ảnh
 
 Ứng dụng trực quan: tải ảnh → giả lập nhiễu (Salt & Pepper / Gaussian) →
 lọc nhiễu → so sánh trực quan + đo **PSNR / SSIM / thời gian xử lý**.
@@ -78,18 +78,21 @@ Mẹo:
 
 | Mode | Thuật toán | Mạnh với | Tốc độ (FullHD RGB) |
 |---|---|---|---|
-| `optimized` | `cv2.medianBlur` (C++) | Muối tiêu | k3 ~2 ms, k5 ~7.5 ms |
-| `quickselect` | `np.partition` (NumPy thuần) | Muối tiêu | chậm hơn ~1000× (vòng lặp Python, để học) |
-| `naive` | `np.median` full-sort | Muối tiêu (học tập) | chậm nhất |
+| `optimized` | `cv2.medianBlur` (C++) | Muối tiêu | k3 ~6 ms, k5 ~9 ms |
+| `quickselect` | `np.partition` vector hóa (không sort full) | Muối tiêu | k3 ~0.5 s (ảnh lớn hiện cảnh báo) |
+| `naive` | `np.sort` full-sort vector hóa (để học) | Muối tiêu (học tập) | chậm hơn quickselect ~1.5–2× |
 | `numba` | Numba JIT (thiếu lib → fallback `quickselect`) | Muối tiêu | ≈ quickselect khi fallback |
 | `mean` | `cv2.blur` | **Gaussian** | ≈ optimized |
 | `gaussian` | `cv2.GaussianBlur` | **Gaussian** | ≈ optimized |
+
+`naive` và `quickselect` cho kết quả giống hệt nhau (cửa sổ lẻ) nhưng đi qua
+implementation riêng (`sort` vs `partition`) nên benchmark so sánh được thật.
 
 ## Test
 
 ```powershell
 python -m pytest tests/ -v
-# 34 passed (13 core + 21 hồi quy cho CODE_REVIEW)
+# 49 passed
 ```
 
 Bao phủ: padding mọi mode, SSIM ảnh 1×1–10×10, stale-worker, callback lỗi,
@@ -114,9 +117,16 @@ pyinstaller --onefile --windowed --name MedianFilterApp main.py
 
 - Padding: `optimized` + `replicate` gọi OpenCV trực tiếp (hành vi gốc);
   `reflect`/`zero` tự pad → blur → cắt viền nên **khớp chính xác** bản `naive`.
+  `reflect` được chuẩn hóa theo `np.pad(mode="reflect")` tức
+  `BORDER_REFLECT_101` (không lặp pixel biên) trên mọi mode median/mean/gaussian.
 - S&P: `density` là tỉ lệ pixel mục tiêu chính xác (chọn duy nhất không lặp,
   muối/tiêu rời nhau); cùng `seed` → cùng ảnh.
 - PSNR ảnh giống hệt nhau trả về `inf`. SSIM tự thu cửa sổ 7/5/3 cho ảnh nhỏ;
   ảnh dưới 3×3 hiện “SSIM không tính được (ảnh quá nhỏ)” nhưng ảnh lọc vẫn hiển thị.
 - Threading: `RunGuard` đánh phiên worker — callback cũ (stale) bị bỏ qua;
   lỗi worker được chốt bằng `_freeze_error()` nên thông báo gốc không bao giờ mất.
+- Benchmark kiểm tra cấu hình trước (mode/kernel/repeat/padding sai báo
+  `ValueError` ngay); lỗi runtime từng ô đo được giữ qua warning, không mất
+  kết quả các ô khác.
+- Ảnh rỗng (cao/rộng = 0) và `max_val` PSNR không hợp lệ (≤ 0, NaN, inf) đều bị
+  từ chối bằng `ValueError` rõ ràng.

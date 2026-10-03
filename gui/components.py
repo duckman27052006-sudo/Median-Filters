@@ -70,11 +70,12 @@ class LabeledSlider(ctk.CTkFrame):
     """Slider + nhãn hiển thị giá trị (dùng lại nhiều lần)."""
 
     def __init__(self, master, label: str, from_: float, to: float,
-                 default: float, fmt: str = "{:.0f}", **kwargs):
+                 default: float, fmt: str = "{:.0f}", command=None, **kwargs):
         super().__init__(master, fg_color="transparent", **kwargs)
         self.fmt = fmt
         self.value = default
         self._label = label
+        self._command = command
         self.header = ctk.CTkLabel(self, text="", font=(FONT, 12))
         self.header.pack(anchor="w")
         self.slider = ctk.CTkSlider(self, from_=from_, to=to,
@@ -86,12 +87,18 @@ class LabeledSlider(ctk.CTkFrame):
     def _on_change(self, v):
         self.value = float(v)
         self._refresh()
+        if self._command is not None:
+            self._command(float(v))
 
     def _refresh(self):
         self.header.configure(text=f"{self._label}: {self.fmt.format(self.value)}")
 
     def get(self) -> float:
         return float(self.slider.get())
+
+    def set_state(self, state: str):
+        """Bật/tắt slider (để khóa giao diện khi worker đang chạy)."""
+        self.slider.configure(state=state)
 
     def set(self, v: float):
         self.slider.set(v)

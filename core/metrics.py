@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import math
 import time
 from collections.abc import Callable
 
 import numpy as np
-from skimage.metrics import structural_similarity as _ssim
+
+
+def _ssim_fn():
+    """Lazy import skimage (nang ~0.3-0.5s) — chi nap khi can SSIM."""
+    from skimage.metrics import structural_similarity as _ssim
+
+    return _ssim
 
 
 def calculate_psnr(
@@ -15,9 +22,14 @@ def calculate_psnr(
     """Peak Signal-to-Noise Ratio (dB). Anh giong het nhau -> inf."""
     if original.shape != compared.shape:
         raise ValueError("original and compared must have same shape")
-    mse = float(np.mean(
-        (original.astype(np.float64) - compared.astype(np.float64)) ** 2
-    ))
+    if (isinstance(max_val, bool) or not isinstance(max_val, (int, float))
+            or not math.isfinite(max_val) or max_val <= 0):
+        raise ValueError(
+            "max_val phai la so huu han lon hon 0 "
+            f"(nhan duoc {max_val!r}).")
+    # float32 du chinh xac cho hieu pixel (tranh copy float64 2x RAM)
+    diff = original.astype(np.float32) - compared.astype(np.float32)
+    mse = float(np.mean(diff * diff, dtype=np.float64))
     if mse == 0:
         return float("inf")
     return 10.0 * np.log10((max_val**2) / mse)
@@ -52,6 +64,7 @@ def calculate_ssim(original: np.ndarray, compared: np.ndarray,
                 f"win_size={win_size} vuot kich thuoc anh ({min_side}px). "
                 f"Chon win_size <= {min_side}."
             )
+    _ssim = _ssim_fn()
     if original.ndim == 2:
         return float(_ssim(original, compared, data_range=255,
                            win_size=win_size))
