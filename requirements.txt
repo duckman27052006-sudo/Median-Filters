@@ -1,0 +1,10 @@
+numpy>=1.24
+opencv-python>=4.8
+scikit-image>=0.22
+customtkinter>=5.2
+Pillow>=10
+matplotlib>=3.8
+scipy>=1.11
+pytest>=7
+# numba la tuy chon (tang toc). Cai neu Python ho tro:
+# numba>=0.59
