@@ -226,24 +226,13 @@ def mean_filter(image: np.ndarray, ksize: int = 3,
     """Loc trung binh (box blur) — tot cho nhieu Gaussian.
 
     Median manh voi nhieu xung (muoi tieu) nhung yeu voi nhieu Gaussian;
-    mean/gaussian blur bu dap thieu sot nay.
+    mean blur bu dap thieu sot nay.
     """
     _validate(image, ksize)
     if padding not in _BORDER_MAP:
         raise ValueError(f"padding must be one of {list(_BORDER_MAP)}")
     return cv2.blur(image, (ksize, ksize),
                     borderType=_BORDER_MAP[padding])
-
-
-def gaussian_filter(image: np.ndarray, ksize: int = 3,
-                    padding: str = "reflect") -> np.ndarray:
-    """Loc Gaussian blur — tot cho nhieu Gaussian, giu cau truc mem hon mean."""
-    _validate(image, ksize)
-    if padding not in _BORDER_MAP:
-        raise ValueError(f"padding must be one of {list(_BORDER_MAP)}")
-    # sigma tu dong theo OpenCV (0 = tu tinh tu ksize)
-    return cv2.GaussianBlur(image, (ksize, ksize), 0,
-                            borderType=_BORDER_MAP[padding])
 
 
 def median_filter(
@@ -255,7 +244,7 @@ def median_filter(
     """Dispatcher chinh.
 
     Median (naive/quickselect/numba/optimized): manh voi nhieu MUOI TIEU.
-    Mean/gaussian: danh cho nhieu GAUSSIAN (median yeu voi loai nay).
+    Mean: danh cho nhieu GAUSSIAN (median yeu voi loai nay).
     """
     mode = mode.lower()
     if mode in ("optimized", "opencv"):
@@ -268,12 +257,10 @@ def median_filter(
         return median_filter_numba(image, ksize, padding)
     if mode == "mean":
         return mean_filter(image, ksize, padding)
-    if mode in ("gaussian", "gauss"):
-        return gaussian_filter(image, ksize, padding)
     raise ValueError(
         f"Unknown mode '{mode}'. "
         "Choose naive/quickselect/numba/optimized (median) "
-        "or mean/gaussian (cho nhieu Gaussian).")
+        "or mean (cho nhieu Gaussian).")
 
 
 def timed_filter(
@@ -304,7 +291,7 @@ def benchmark_filters(
     import warnings
 
     valid_modes = {"naive", "quickselect", "numba", "optimized", "opencv",
-                   "mean", "gaussian", "gauss"}
+                   "mean"}
     if not modes:
         raise ValueError("modes khong duoc rong")
     for m in modes:
@@ -356,7 +343,7 @@ def estimate_filter_ms(h: int, w: int, channels: int, ksize: int,
     """Uoc tinh thoi gian loc (ms) de GUI canh bao truoc khi chay.
 
     Hieu chuan tu do thuc te: mode NumPy ton ~5ns moi pixel-cua-so
-    (12MP RGB k5 naive ~13s); mode OpenCV (optimized/mean/gaussian) vai ms.
+    (12MP RGB k5 naive ~13s); mode OpenCV (optimized/mean) vai ms.
     """
     if mode.lower() not in _SLOW_MODES:
         return 5.0

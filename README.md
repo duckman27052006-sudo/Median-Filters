@@ -18,7 +18,7 @@ median-filter-app/
 ├── assets/sample.png      # ảnh mẫu tự tạo nếu thiếu
 ├── core/
 │   ├── filters.py         # median (naive/quickselect/numba/opencv),
-│   │                      # mean, gaussian + timed_filter, benchmark_filters
+│   │                      # mean + timed_filter, benchmark_filters
 │   ├── noise.py           # salt & pepper (đúng mật độ), gaussian
 │   └── metrics.py         # PSNR, SSIM (tự thu cửa sổ ảnh nhỏ)
 ├── gui/
@@ -69,7 +69,7 @@ Thao tác trên GUI:
 Mẹo:
 
 - Muối tiêu 10–30% + cửa sổ 3×3/5×5 + `optimized` → sạch nhiễu mà giữ viền.
-- Nhiễu Gaussian → chọn `mean` hoặc `gaussian` thay vì Median (app sẽ hiện
+- Nhiễu Gaussian → chọn `mean` thay vì Median (app sẽ hiện
   cảnh báo ⚠️ nếu bạn dùng Median cho nhiễu Gaussian).
 - Ảnh đang lọc/đo mà bấm tiếp → app báo “Đang bận”; tải ảnh khác giữa chừng
   thì kết quả cũ tự bị hủy, không ghi đè nhầm.
@@ -83,7 +83,6 @@ Mẹo:
 | `naive` | `np.sort` full-sort vector hóa (để học) | Muối tiêu (học tập) | chậm hơn quickselect ~1.5–2× |
 | `numba` | Numba JIT (thiếu lib → fallback `quickselect`) | Muối tiêu | ≈ quickselect khi fallback |
 | `mean` | `cv2.blur` | **Gaussian** | ≈ optimized |
-| `gaussian` | `cv2.GaussianBlur` | **Gaussian** | ≈ optimized |
 
 `naive` và `quickselect` cho kết quả giống hệt nhau (cửa sổ lẻ) nhưng đi qua
 implementation riêng (`sort` vs `partition`) nên benchmark so sánh được thật.
@@ -118,7 +117,7 @@ pyinstaller --onefile --windowed --name MedianFilterApp main.py
 - Padding: `optimized` + `replicate` gọi OpenCV trực tiếp (hành vi gốc);
   `reflect`/`zero` tự pad → blur → cắt viền nên **khớp chính xác** bản `naive`.
   `reflect` được chuẩn hóa theo `np.pad(mode="reflect")` tức
-  `BORDER_REFLECT_101` (không lặp pixel biên) trên mọi mode median/mean/gaussian.
+  `BORDER_REFLECT_101` (không lặp pixel biên) trên mọi mode median/mean.
 - S&P: `density` là tỉ lệ pixel mục tiêu chính xác (chọn duy nhất không lặp,
   muối/tiêu rời nhau); cùng `seed` → cùng ảnh.
 - PSNR ảnh giống hệt nhau trả về `inf`. SSIM tự thu cửa sổ 7/5/3 cho ảnh nhỏ;
