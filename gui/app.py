@@ -199,7 +199,7 @@ class MedianFilterApp(ctk.CTk):
         self.mode_menu = ctk.CTkOptionMenu(
             card_filter.body,
             values=["optimized", "quickselect", "naive", "numba",
-                    "mean", "gaussian"],
+                    "mean"],
             font=(FONT, 12),
             command=lambda _: self.on_filter_mode_changed())
         self.mode_menu.set("optimized")
@@ -402,14 +402,14 @@ class MedianFilterApp(ctk.CTk):
 
     def on_filter_mode_change(self):
         m = self.mode_menu.get()
-        if m in ("mean", "gaussian"):
+        if m == "mean":
             self.mode_hint.configure(
-                text="Mean/Gaussian: trị nhiễu Gaussian. "
+                text="Mean: trị nhiễu Gaussian. "
                      "Median yếu với loại nhiễu này.")
         else:
             self.mode_hint.configure(
                 text="Median: trị nhiễu muối tiêu. "
-                     "Với nhiễu Gaussian hãy chọn mean/gaussian.")
+                     "Với nhiễu Gaussian hãy chọn mean.")
 
     def on_noise_type_change(self):
         t = self.noise_type.get()
@@ -632,9 +632,9 @@ class MedianFilterApp(ctk.CTk):
         self.result = out
         self.p_result.set_image(out, image_info(out))
         note = ""
-        if noise_kind == "Gaussian" and mode not in ("mean", "gaussian"):
+        if noise_kind == "Gaussian" and mode != "mean":
             note = ("   ⚠️ Median yếu với nhiễu Gaussian — "
-                    "thử lại với mean/gaussian.")
+                    "thử lại với mean.")
         note += improvement_note(psnr_noisy, psnr_out)
         self.metrics.configure(
             text=f"Cửa sổ {ksize}×{ksize}  •  {mode}  •  {padding}   "
@@ -687,9 +687,9 @@ class MedianFilterApp(ctk.CTk):
         bw, bh = bench_img.shape[1], bench_img.shape[0]
         ksizes = [3, 5, 7, 9]
         if src.ndim == 3:
-            modes = ["optimized", "quickselect", "mean", "gaussian"]
+            modes = ["optimized", "quickselect", "mean"]
         else:
-            modes = ["optimized", "quickselect", "naive", "mean", "gaussian"]
+            modes = ["optimized", "quickselect", "naive", "mean"]
         padding = self.pad_menu.get()
         seq = self._guard.start()
         self._inflight += 1

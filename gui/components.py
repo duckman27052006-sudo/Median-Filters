@@ -42,17 +42,36 @@ class ImagePanel(ctk.CTkFrame):
                                        font=(FONT, 11), text_color="gray")
         self.info_label.pack(pady=(2, 10))
         self._image: np.ndarray | None = None
+        self._tk_ref = None  # giữ CTkImage chống GC (bền hơn _tk_img)
 
     def set_image(self, image: np.ndarray | None, info: str = ""):
         self._image = image
         if image is None:
+            old = getattr(self.image_label, "_tk_img", None)
             self.image_label.configure(image=None, text="Chưa có ảnh")
+            try:
+                # CTkLabel._update_image() bỏ qua None nên phải xóa
+                # underlying Tk image thủ công, kẻo lần sau configure(text)
+                # vẫn cố vẽ photo cũ đã bị GC -> TclError pyimageX.
+                self.image_label._label.configure(image="")  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            self.image_label._tk_img = None  # type: ignore[attr-defined]
+            self._tk_ref = None
+            del old
             self.info_label.configure(text=info or "—")
             return
         tk_img = numpy_to_tk(image)
-        # giữ tham chiếu chống GC
+        # Giữ ref cũ tới SAU khi configure xong: CTkLabel.configure()
+        # chạy text trước image, nếu thả photo cũ sớm thì Tk vẫn đang
+        # giữ image cũ đã chết -> TclError image "pyimageX" doesn't exist.
+        old = getattr(self.image_label, "_tk_img", None)
+        self._tk_ref = tk_img
         self.image_label._tk_img = tk_img  # type: ignore[attr-defined]
-        self.image_label.configure(image=tk_img, text="")
+        try:
+            self.image_label.configure(image=tk_img, text="")
+        finally:
+            del old
         if not info:
             if image.ndim == 2:
                 h, w = image.shape

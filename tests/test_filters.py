@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 
 from core.filters import (
-    gaussian_filter,
     mean_filter,
     median_filter,
     median_filter_naive,
@@ -123,13 +122,12 @@ def test_ssim_range():
     assert calculate_ssim(img, img) == pytest.approx(1.0)
 
 
-def test_mean_gaussian_shape():
+def test_mean_shape():
     rng = np.random.default_rng(3)
     img = rng.integers(0, 256, size=(24, 24, 3), dtype=np.uint8)
-    for fn in (mean_filter, gaussian_filter):
-        out = fn(img, 3)
-        assert out.shape == img.shape
-        assert out.dtype == np.uint8
+    out = mean_filter(img, 3)
+    assert out.shape == img.shape
+    assert out.dtype == np.uint8
 
 
 def test_mean_better_than_median_for_gaussian():
@@ -162,14 +160,13 @@ def test_optimized_default_backward_compatible():
     )
 
 
-def test_mean_gaussian_padding_border_differs_interior_equal():
+def test_mean_padding_border_differs_interior_equal():
     img = np.zeros((10, 10), dtype=np.uint8)
     img[0, :] = img[-1, :] = img[:, 0] = img[:, -1] = 255
-    for fn in (mean_filter, gaussian_filter):
-        z = fn(img, 3, padding="zero")
-        r = fn(img, 3, padding="replicate")
-        assert not np.array_equal(z, r)  # vien khac nhau theo padding
-        np.testing.assert_array_equal(z[2:-2, 2:-2], r[2:-2, 2:-2])
+    z = mean_filter(img, 3, padding="zero")
+    r = mean_filter(img, 3, padding="replicate")
+    assert not np.array_equal(z, r)  # vien khac nhau theo padding
+    np.testing.assert_array_equal(z[2:-2, 2:-2], r[2:-2, 2:-2])
 
 
 def test_reflect_matches_numpy_convention():
@@ -181,14 +178,10 @@ def test_reflect_matches_numpy_convention():
     assert _BORDER_MAP["reflect"] == cv2.BORDER_REFLECT_101
     rng = np.random.default_rng(20)
     img = rng.integers(0, 256, size=(12, 12), dtype=np.uint8)
-    for fn in (mean_filter, gaussian_filter):
-        got = fn(img, 3, padding="reflect")
-        padded = np.pad(img, 1, mode="reflect")  # REFLECT_101
-        if fn is mean_filter:
-            ref = cv2.blur(padded, (3, 3))[1:-1, 1:-1]
-        else:
-            ref = cv2.GaussianBlur(padded, (3, 3), 0)[1:-1, 1:-1]
-        np.testing.assert_array_equal(got, ref)
+    got = mean_filter(img, 3, padding="reflect")
+    padded = np.pad(img, 1, mode="reflect")  # REFLECT_101
+    ref = cv2.blur(padded, (3, 3))[1:-1, 1:-1]
+    np.testing.assert_array_equal(got, ref)
 
 
 def test_naive_quickselect_distinct_paths_same_result():
